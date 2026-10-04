@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CalcInk</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #fbf8f1; }
+      canvas { position: absolute; inset: 0; width: 100vw; height: 100vh; }
+      #live { touch-action: none; } /* the top canvas receives the pen input */
+      #toolbar { position: fixed; top: 8px; left: 8px; z-index: 10; display: flex; gap: 6px; }
+      #toolbar button { padding: 8px 14px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer; }
+      #toolbar button:active { transform: scale(0.95); }
+    </style>
+  </head>
+  <body>
+    <canvas id="base"></canvas>
+    <canvas id="live"></canvas>
+    
+    <div id="toolbar">
+  <button id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
+  <button id="redoBtn" title="Redo (Ctrl+Shift+Z)">Redo</button>
+  <button id="clearBtn" title="Clear">Clear</button>
+</div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
