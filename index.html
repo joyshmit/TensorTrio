@@ -11,13 +11,17 @@
       #toolbar { position: fixed; top: 8px; left: 8px; z-index: 10; display: flex; gap: 6px; }
       #toolbar button { padding: 8px 14px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer; }
       #toolbar button:active { transform: scale(0.95); }
+      #toolbar button.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
     </style>
   </head>
   <body>
     <canvas id="base"></canvas>
     <canvas id="live"></canvas>
     
-    <div id="toolbar">
+<div id="toolbar">
+  <button id="penBtn" class="tool active" title="Pen (P)">Pen</button>
+  <button id="strokeEraserBtn" class="tool" title="Stroke eraser (S)">Stroke eraser</button>
+  <button id="pixelEraserBtn" class="tool" title="Pixel eraser (E)">Pixel eraser</button>
   <button id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
   <button id="redoBtn" title="Redo (Ctrl+Shift+Z)">Redo</button>
   <button id="clearBtn" title="Clear">Clear</button>

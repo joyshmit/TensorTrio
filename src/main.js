@@ -1,15 +1,26 @@
-import { strokes, startStroke, addPoint, commitStroke, clearAll, undo, redo, setOnChange } from './canvas/strokes.js';
+import {
+  strokes, startStroke, addPoint, commitStroke, eraseStroke, commitRemoval,
+  clearAll, undo, redo, setOnChange,
+} from './canvas/strokes.js';
+import { strokeHit } from './canvas/hitTest.js';
 
-const baseCanvas = document.getElementById('base'); // finished strokes
+const baseCanvas = document.getElementById('base'); // finished ink
 const liveCanvas = document.getElementById('live'); // stroke being drawn
 const baseCtx = baseCanvas.getContext('2d');
-const liveCtx = liveCanvas.getContext('2d', { desynchronized: true }); // lower stylus latency
-// const liveCtx = liveCanvas.getContext('2d');
+const liveCtx = liveCanvas.getContext('2d');
 
 const PEN_WIDTH = 3;
-let currentStroke = null;
-let drawnIndex = 0;      // last point already painted on the live canvas
+const PIXEL_ERASER_WIDTH = 24;
+const STROKE_ERASER_RADIUS = 8;
+
+let tool = 'pen';                // 'pen' | 'stroke-eraser' | 'pixel-eraser'
+let currentStroke = null;        // pen or pixel-eraser stroke in progress
+let erasingStrokes = false;      // stroke eraser drag in progress
+let removedThisDrag = [];
+let drawnIndex = 0;
 let frameQueued = false;
+
+const busy = () => currentStroke !== null || erasingStrokes;
 
 // ---------- sizing (sharp on high-DPI screens) ----------
 function setup(canvas, ctx) {
@@ -21,7 +32,7 @@ function setup(canvas, ctx) {
 
 function redrawBase() {
   baseCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-  strokes.forEach((s) => paint(baseCtx, s, 0));
+  strokes.forEach((s) => paint(baseCtx, s, 0)); // replays pen AND eraser strokes in order
 }
 
 function resize() {
@@ -29,29 +40,50 @@ function resize() {
   setup(liveCanvas, liveCtx);
   redrawBase();
 }
+
 // ---------- drawing ----------
-// Paint a stroke starting from point index `from`
 function paint(ctx, stroke, from) {
   const pts = stroke.points;
-  if (pts.length === 0) return;
+  const n = pts.length - 1;
+  if (n < 0) return;
+
+  ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
   ctx.lineWidth = stroke.width;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.strokeStyle = '#1a1a1a';
   ctx.beginPath();
-  ctx.moveTo(pts[from].x, pts[from].y);
-  for (let i = from + 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-  if (pts.length === 1) ctx.lineTo(pts[0].x + 0.01, pts[0].y); // tap = dot
+
+  if (n === 0) {                       // a single tap = dot
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(pts[0].x + 0.01, pts[0].y);
+  } else {
+    // start where the previous batch of curves ended
+    if (from === 0) {
+      ctx.moveTo(pts[0].x, pts[0].y);
+    } else {
+      ctx.moveTo((pts[from - 1].x + pts[from].x) / 2, (pts[from - 1].y + pts[from].y) / 2);
+    }
+    for (let i = Math.max(from, 1); i < n; i++) {
+      const mx = (pts[i].x + pts[i + 1].x) / 2;
+      const my = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+    }
+    ctx.lineTo(pts[n].x, pts[n].y);    // short tail to the newest point
+  }
+
   ctx.stroke();
+  ctx.globalCompositeOperation = 'source-over';
 }
 
-// Runs at most once per screen refresh
 function frame() {
   frameQueued = false;
   if (!currentStroke) return;
   const last = currentStroke.points.length - 1;
   if (last >= drawnIndex) {
-    paint(liveCtx, currentStroke, drawnIndex); // only the NEW segments
+    // The pixel eraser rubs out the base canvas directly so you see it live
+    const target = currentStroke.tool === 'eraser' ? baseCtx : liveCtx;
+    paint(target, currentStroke, drawnIndex);
     drawnIndex = last;
   }
 }
@@ -63,49 +95,98 @@ function queueFrame() {
   }
 }
 
-// ---------- pointer input (only saves data, never draws) ----------
+// ---------- stroke eraser ----------
+function eraseAt(x, y) {
+  let changed = false;
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    const s = strokes[i];
+    if (s.tool !== 'pen') continue;
+    if (strokeHit(s, x, y, STROKE_ERASER_RADIUS)) {
+      removedThisDrag.push(eraseStroke(s));
+      changed = true;
+    }
+  }
+  if (changed) redrawBase();
+}
+
+// ---------- pointer input ----------
 liveCanvas.addEventListener('pointerdown', (e) => {
   liveCanvas.setPointerCapture(e.pointerId);
-  currentStroke = startStroke(e.clientX, e.clientY, e.pressure, PEN_WIDTH);
+  if (tool === 'stroke-eraser') {
+    erasingStrokes = true;
+    removedThisDrag = [];
+    eraseAt(e.clientX, e.clientY);
+    return;
+  }
+  const isEraser = tool === 'pixel-eraser';
+  currentStroke = startStroke(
+    e.clientX, e.clientY, e.pressure,
+    isEraser ? PIXEL_ERASER_WIDTH : PEN_WIDTH,
+    isEraser ? 'eraser' : 'pen'
+  );
   drawnIndex = 0;
   queueFrame();
 });
 
 liveCanvas.addEventListener('pointermove', (e) => {
-  if (!currentStroke) return;
-  // coalesced events = every tiny movement between frames
   const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  if (erasingStrokes) {
+    for (const ev of events) eraseAt(ev.clientX, ev.clientY);
+    return;
+  }
+  if (!currentStroke) return;
   for (const ev of events) addPoint(currentStroke, ev.clientX, ev.clientY, ev.pressure);
   queueFrame();
 });
 
 function endStroke() {
+  if (erasingStrokes) {
+    erasingStrokes = false;
+    commitRemoval(removedThisDrag);
+    removedThisDrag = [];
+    return;
+  }
   if (!currentStroke) return;
-  frame(); // paint any leftover points
+  frame();
   liveCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
   const done = currentStroke;
   currentStroke = null;
-  commitStroke(done); // redraws the back canvas through setOnChange
+  commitStroke(done);
 }
 
 liveCanvas.addEventListener('pointerup', endStroke);
 liveCanvas.addEventListener('pointercancel', endStroke);
 
-resize();
-window.addEventListener('resize', resize);
-window.strokes = strokes; // so you can type `strokes` in the console
+// ---------- tools ----------
+const toolButtons = {
+  'pen': document.getElementById('penBtn'),
+  'stroke-eraser': document.getElementById('strokeEraserBtn'),
+  'pixel-eraser': document.getElementById('pixelEraserBtn'),
+};
 
+function setTool(name) {
+  if (busy()) return;
+  tool = name;
+  for (const [key, btn] of Object.entries(toolButtons)) {
+    btn.classList.toggle('active', key === name);
+  }
+  liveCanvas.style.cursor = name === 'pen' ? 'crosshair' : 'cell';
+  if (navigator.vibrate) navigator.vibrate(10); // haptic tick on supported phones
+}
 
+for (const [key, btn] of Object.entries(toolButtons)) {
+  btn.onclick = () => setTool(key);
+}
 
 // ---------- undo / redo / clear ----------
-// Any change to the strokes redraws the back canvas once
 setOnChange(() => {
   redrawBase();
+  console.log('Strokes:', strokes.length);
   // later: tell the recognition code that the drawing changed
 });
 
 function guarded(fn) {
-  return () => { if (!currentStroke) fn(); };  // ignore while drawing
+  return () => { if (!busy()) fn(); };
 }
 
 document.getElementById('undoBtn').onclick = guarded(undo);
@@ -113,8 +194,18 @@ document.getElementById('redoBtn').onclick = guarded(redo);
 document.getElementById('clearBtn').onclick = guarded(clearAll);
 
 window.addEventListener('keydown', (e) => {
-  if (!(e.ctrlKey || e.metaKey)) return;
   const key = e.key.toLowerCase();
-  if (key === 'z' && !e.shiftKey) { e.preventDefault(); guarded(undo)(); }
-  else if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); guarded(redo)(); }
+  if (e.ctrlKey || e.metaKey) {
+    if (key === 'z' && !e.shiftKey) { e.preventDefault(); guarded(undo)(); }
+    else if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); guarded(redo)(); }
+    return;
+  }
+  if (key === 'p') setTool('pen');
+  else if (key === 's') setTool('stroke-eraser');
+  else if (key === 'e') setTool('pixel-eraser');
 });
+
+// ---------- start ----------
+resize();
+window.addEventListener('resize', resize);
+window.strokes = strokes; // debug: type `strokes` in the console
