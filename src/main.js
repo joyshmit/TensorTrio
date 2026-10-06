@@ -4,9 +4,11 @@ import {
   clearAll, undo, redo, setOnChange,
 } from './canvas/strokes.js';
 import { strokeHit } from './canvas/hitTest.js';
-import { snapshotInk } from './canvas/snapshot.js';
+// import { snapshotInk } from './canvas/snapshot.js';
 import { WORLD_W, WORLD_H, computeView, toWorld } from './canvas/coords.js';
 import { recognize } from './recognition/mock.js';
+import { snapshotLine } from './canvas/snapshot.js';
+import { groupLines } from './canvas/lines.js';
 
 const boardEl = document.getElementById('board');
 const baseCanvas = document.getElementById('base');
@@ -260,37 +262,52 @@ function setResults(results) {
   fadeFrame = requestAnimationFrame(step);
 }
 
-// ---------- recognition hand-off ----------
+// ---------- recognition hand-off (one call per row) ----------
 let version = 0;
 let timer = null;
+const cache = new Map(); // row signature -> answers for that row
+
+function showCached(lines) {
+  const all = [];
+  for (const L of lines) if (cache.has(L.sig)) all.push(...cache.get(L.sig));
+  setResults(all);
+}
 
 function scheduleRecognition() {
   const myVersion = ++version;
   clearTimeout(timer);
-  setResults([]);
+  showCached(groupLines(strokes)); // unchanged rows keep their answers
+
   timer = setTimeout(async () => {
     if (busy()) return;
-    const snap = await snapshotInk(baseCanvas, strokes, WORLD_W);
-    if (!snap) return;
-    try {
-      const results = await recognize(snap.bitmap);
-      if (myVersion !== version) return;
-      const { box } = snap;
-      const scale = box.w / snap.bitmap.width;
-      setResults(results.map((r) => ({
-        text: r.text,
-        x: box.x + r.x * scale,
-        y: box.y + r.y * scale,
-        bottom: box.y + box.h,
-      })));
-    } catch (err) {
-      console.error('Recognition failed:', err);
-    } finally {
-      snap.bitmap.close();
+    const lines = groupLines(strokes);
+    const live = new Set(lines.map((L) => L.sig));
+    for (const key of cache.keys()) if (!live.has(key)) cache.delete(key); // no leaks
+
+    for (const line of lines) {
+      if (cache.has(line.sig)) continue;
+      const snap = await snapshotLine(baseCanvas, line, WORLD_W);
+      if (!snap) continue;
+      try {
+        const results = await recognize(snap.bitmap);
+        if (myVersion !== version) return; // drawing changed, a newer run takes over
+        const { box } = snap;
+        const scale = box.w / snap.bitmap.width;
+        cache.set(line.sig, results.map((r) => ({
+          text: r.text,
+          x: box.x + r.x * scale,
+          y: box.y + r.y * scale,
+          bottom: box.y + box.h,
+        })));
+        showCached(lines);
+      } catch (err) {
+        console.error('Recognition failed:', err);
+      } finally {
+        snap.bitmap.close();
+      }
     }
   }, 400);
 }
-
 // ---------- undo / redo / clear ----------
 setOnChange(() => {
   redrawBase();
