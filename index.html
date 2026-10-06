@@ -12,11 +12,13 @@
       #toolbar button { padding: 8px 14px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer; }
       #toolbar button:active { transform: scale(0.95); }
       #toolbar button.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+      #answers { pointer-events: none; }
     </style>
   </head>
   <body>
     <canvas id="base"></canvas>
     <canvas id="live"></canvas>
+    <canvas id="answers"></canvas>
     
 <div id="toolbar">
   <button id="penBtn" class="tool active" title="Pen (P)">Pen</button>

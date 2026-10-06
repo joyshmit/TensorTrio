@@ -3,11 +3,15 @@ import {
   clearAll, undo, redo, setOnChange,
 } from './canvas/strokes.js';
 import { strokeHit } from './canvas/hitTest.js';
+import { snapshotInk } from './canvas/snapshot.js';
+import { recognize } from './recognition/mock.js';
 
 const baseCanvas = document.getElementById('base'); // finished ink
 const liveCanvas = document.getElementById('live'); // stroke being drawn
 const baseCtx = baseCanvas.getContext('2d');
 const liveCtx = liveCanvas.getContext('2d');
+const answerCanvas = document.getElementById('answers');
+const answerCtx = answerCanvas.getContext('2d');
 
 const PEN_WIDTH = 3;
 const PIXEL_ERASER_WIDTH = 24;
@@ -39,6 +43,7 @@ function resize() {
   setup(baseCanvas, baseCtx);
   setup(liveCanvas, liveCtx);
   redrawBase();
+  setup(answerCanvas, answerCtx);
 }
 
 // ---------- drawing ----------
@@ -181,8 +186,7 @@ for (const [key, btn] of Object.entries(toolButtons)) {
 // ---------- undo / redo / clear ----------
 setOnChange(() => {
   redrawBase();
-  console.log('Strokes:', strokes.length);
-  // later: tell the recognition code that the drawing changed
+  scheduleRecognition();
 });
 
 function guarded(fn) {
@@ -204,6 +208,51 @@ window.addEventListener('keydown', (e) => {
   else if (key === 's') setTool('stroke-eraser');
   else if (key === 'e') setTool('pixel-eraser');
 });
+// ---------- recognition hand-off ----------
+let version = 0;   // lets us ignore results that arrive after the drawing changed
+let timer = null;
+let lastResults = [];
+
+function setResults(results) {
+  lastResults = results;
+  answerCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  answerCtx.font = '32px "Caveat", "Segoe Print", cursive';
+  answerCtx.fillStyle = '#c0392b';
+  answerCtx.textBaseline = 'middle';
+  for (const r of results) answerCtx.fillText(r.text, r.x, r.y);
+}
+
+function scheduleRecognition() {
+  const myVersion = ++version;
+  clearTimeout(timer);
+  setResults([]); // drawing changed, so the old answer is out of date
+  timer = setTimeout(async () => {
+    if (busy()) return;
+    const snap = await snapshotInk(baseCanvas, strokes);
+    if (!snap) return;
+//     const preview = document.getElementById('preview') || Object.assign(document.createElement('canvas'), { id: 'preview' });
+// preview.style.cssText = 'position:fixed;bottom:8px;right:8px;border:2px solid red;background:#fff;z-index:50;max-width:300px';
+// preview.width = snap.bitmap.width;
+// preview.height = snap.bitmap.height;
+// preview.getContext('2d').drawImage(snap.bitmap, 0, 0);
+// document.body.appendChild(preview);
+    try {
+      const results = await recognize(snap.bitmap);
+      if (myVersion !== version) return; // user kept drawing, discard
+      const { box } = snap;
+      const scale = box.w / snap.bitmap.width;
+      setResults(results.map((r) => ({
+        text: r.text,
+        x: box.x + r.x * scale,
+        y: box.y + r.y * scale,
+      })));
+    } catch (err) {
+      console.error('Recognition failed:', err);
+    } finally {
+      snap.bitmap.close(); // free memory
+    }
+  }, 400);
+}
 
 // ---------- start ----------
 resize();
