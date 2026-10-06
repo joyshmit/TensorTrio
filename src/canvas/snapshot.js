@@ -1,4 +1,4 @@
-export async function snapshotInk(baseCanvas, strokes, pad = 16) {
+export async function snapshotInk(baseCanvas, strokes, worldWidth, pad = 16) {
   const pen = strokes.filter((s) => s.tool === 'pen');
   if (pen.length === 0) return null;
 
@@ -10,7 +10,7 @@ export async function snapshotInk(baseCanvas, strokes, pad = 16) {
     }
   }
 
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = baseCanvas.width / worldWidth; // canvas pixels per board unit
   const sx = Math.max(0, Math.floor((minX - pad) * dpr));
   const sy = Math.max(0, Math.floor((minY - pad) * dpr));
   const sw = Math.min(baseCanvas.width - sx, Math.ceil((maxX - minX + pad * 2) * dpr));
@@ -25,7 +25,6 @@ export async function snapshotInk(baseCanvas, strokes, pad = 16) {
 
   return {
     bitmap: off.transferToImageBitmap(),
-    // where the crop sits on the page, in CSS pixels
-    box: { x: sx / dpr, y: sy / dpr, w: sw / dpr, h: sh / dpr, dpr },
+    box: { x: sx / dpr, y: sy / dpr, w: sw / dpr, h: sh / dpr }, // board units
   };
 }

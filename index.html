@@ -5,29 +5,51 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CalcInk</title>
     <style>
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #fbf8f1; }
-      canvas { position: absolute; inset: 0; width: 100vw; height: 100vh; }
-      #live { touch-action: none; } /* the top canvas receives the pen input */
-      #toolbar { position: fixed; top: 8px; left: 8px; z-index: 10; display: flex; gap: 6px; }
-      #toolbar button { padding: 8px 14px; border: 1px solid #ccc; border-radius: 8px; background: #fff; cursor: pointer; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #e6e1d6; }
+      #board {
+        position: absolute;
+        background: #fbf8f1;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.18);
+        border-radius: 6px;
+      }
+      canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+      #live { touch-action: none; }
+      #answers { pointer-events: none; }
+
+      #toolbar { position: fixed; top: 8px; left: 8px; z-index: 10; display: flex; gap: 6px; flex-wrap: wrap; }
+      #toolbar button {
+        padding: 8px 14px; border: 1px solid #ccc; border-radius: 8px;
+        background: #fff; cursor: pointer;
+      }
       #toolbar button:active { transform: scale(0.95); }
       #toolbar button.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
-      #answers { pointer-events: none; }
+      #widthBox {
+        display: flex; align-items: center; gap: 8px;
+        padding: 0 12px; border: 1px solid #ccc; border-radius: 8px; background: #fff;
+        font: 13px sans-serif;
+      }
+      #widthLabel { min-width: 18px; text-align: right; }
     </style>
   </head>
   <body>
-    <canvas id="base"></canvas>
-    <canvas id="live"></canvas>
-    <canvas id="answers"></canvas>
-    
-<div id="toolbar">
-  <button id="penBtn" class="tool active" title="Pen (P)">Pen</button>
-  <button id="strokeEraserBtn" class="tool" title="Stroke eraser (S)">Stroke eraser</button>
-  <button id="pixelEraserBtn" class="tool" title="Pixel eraser (E)">Pixel eraser</button>
-  <button id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
-  <button id="redoBtn" title="Redo (Ctrl+Shift+Z)">Redo</button>
-  <button id="clearBtn" title="Clear">Clear</button>
-</div>
+    <div id="board">
+      <canvas id="base"></canvas>
+      <canvas id="live"></canvas>
+      <canvas id="answers"></canvas>
+    </div>
+
+    <div id="toolbar">
+      <button id="penBtn" class="tool active" title="Pen (P)">Pen</button>
+      <button id="strokeEraserBtn" class="tool" title="Stroke eraser (S)">Stroke eraser</button>
+      <button id="pixelEraserBtn" class="tool" title="Pixel eraser (E)">Pixel eraser</button>
+      <button id="undoBtn" title="Undo (Ctrl+Z)">Undo</button>
+      <button id="redoBtn" title="Redo (Ctrl+Shift+Z)">Redo</button>
+      <button id="clearBtn" title="Clear">Clear</button>
+      <label id="widthBox" title="Pen thickness">
+        <span id="widthLabel">3</span>
+        <input id="widthSlider" type="range" min="1" max="12" value="3" step="1" />
+      </label>
+    </div>
 
     <script type="module" src="/src/main.js"></script>
   </body>
