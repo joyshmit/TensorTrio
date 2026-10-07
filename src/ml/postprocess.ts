@@ -59,7 +59,7 @@ export function latexToExpression(raw: string): {
     NUMBER.test(e.trim()) ? `^${e.trim()}` : `^(${e.trim()})`,
   );
 
-  let clean = !/\\[a-zA-Z]+/.test(s); // any command still left is unsupported
+  s = s.replace(/\\mid(?![a-zA-Z])/g, "1"); let clean = !/\\[a-zA-Z]+/.test(s); // any command still left is unsupported
   s = s.replace(/\\[a-zA-Z]+/g, "");
 
   s = s
@@ -68,7 +68,7 @@ export function latexToExpression(raw: string): {
     .replace(/[gG]/g, "9")
     .replace(/[oO]/g, "0")
     .replace(/[sS]/g, "5")
-    .replace(/[lI]/g, "1")
+    .replace(/[lI|]/g, "1")
     .replace(/[−–—]/g, "-")
     .replace(/[*xX]/g, "×")
     .replace(/[:/]/g, "÷")
