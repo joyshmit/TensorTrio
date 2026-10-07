@@ -275,7 +275,7 @@ function renderAnswers(results, alpha, rise) {
   answerCtx.font = '48px "Caveat", "Segoe Print", cursive';
   for (const r of results) {
     if (r.typeset || (r.box && covered.has(r.box))) continue;
-    const undef = /^undefined$/i.test(r.text);
+    const undef = r.isError || /^undefined$/i.test(r.text);
     const w = answerCtx.measureText(r.text).width;
 
     let x = r.x + 8;
@@ -354,6 +354,7 @@ function scheduleRecognition() {
         box,
         sig: line.sig,
         typeset: r.typeset,
+        isError: r.isError,
         expr: r.expr,
         answer: r.answer,
         })));
