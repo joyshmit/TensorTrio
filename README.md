@@ -75,4 +75,3 @@ To deploy and execute the project locally:
    *(The repository includes a comprehensive suite of 40+ unit tests covering the arithmetic parser, coordinate transformations, and segmentation logic to ensure high structural integrity.)*
 
 ---
-*Engineered for the Inter IIT Tech Meet 15.0 - Software Development PS.*
