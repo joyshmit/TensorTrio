@@ -353,7 +353,13 @@ function scheduleRecognition() {
         if (ranges.length > 1) {
           for (const range of ranges) {
             const part = await snapshotLine(baseCanvas, line, WORLD_W, SNAP_PAD, range);
-            if (part) pieces.push(part.bitmap);
+            if (part) {
+              const sig = line.strokes
+                .filter((s) => s.points.some((p) => p.x >= range.x0 && p.x <= range.x1))
+                .map((s) => s.id)
+                .join(',');
+              pieces.push({ bitmap: part.bitmap, sig });
+            }
           }
         }
         const results = await recognize(snap.bitmap, pieces);
@@ -377,7 +383,7 @@ function scheduleRecognition() {
         console.error('Recognition failed:', err);
       } finally {
         snap.bitmap.close();
-        for (const b of pieces) b.close();
+        for (const b of pieces) (b.bitmap || b).close();
       }
     }
   }, 400);

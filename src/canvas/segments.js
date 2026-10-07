@@ -49,13 +49,12 @@ export function splitLine(line, { maxAspect = 6, pad = 16 } = {}) {
     gaps.push({ at: (cl[i][1] + cl[i + 1][0]) / 2, size: cl[i + 1][0] - cl[i][1] });
   }
 
-  // Aim for evenly sized chunks (with some slack) rather than a tiny leftover at the end.
-  const n = Math.ceil(total / (0.8 * maxWidth));
-  const target = total / n;
+  // Use a fixed target size so chunks don't shift when new strokes are added on the right.
+  const target = 0.8 * maxWidth;
   const cuts = [];
   let from = line.minX;
-  for (let k = 1; k < n; k++) {
-    const want = line.minX + k * target;
+  while (true) {
+    const want = from + target;
     const ahead = gaps.filter((g) => g.at > from + 1e-6);
     if (ahead.length === 0) break;
     // prefer the widest gap near the target position, else the nearest gap

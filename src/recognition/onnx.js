@@ -38,13 +38,22 @@ function prettyExpression(body) {
 // consecutive slices of that row, which are read one by one so the model sees large glyphs, and
 // their LaTeX is joined and converted as one expression (brackets can span pieces).
 // Same contract as mock.js: bitmap in, [{ text, x, y }] out (coordinates inside the bitmap).
+
+const pieceCache = new Map(); // sig -> raw LaTeX
+
 export async function recognize(bitmap, pieces = []) {
   let text, clean;
   if (pieces.length > 1) {
     const raws = [];
     for (const piece of pieces) {
-      const r = await recognizer.recognizeBitmap(piece, THICKEN);
+      if (piece.sig && pieceCache.has(piece.sig)) {
+        raws.push(pieceCache.get(piece.sig));
+        continue;
+      }
+      const bmp = piece.bitmap || piece;
+      const r = await recognizer.recognizeBitmap(bmp, THICKEN);
       if (r.superseded) return [];
+      if (piece.sig) pieceCache.set(piece.sig, r.raw);
       raws.push(r.raw);
     }
     ({ text, clean } = latexToExpression(raws.join(' ')));
