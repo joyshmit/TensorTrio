@@ -6,7 +6,7 @@ import {
 import { strokeHit } from './canvas/hitTest.js';
 // import { snapshotInk } from './canvas/snapshot.js';
 import { WORLD_W, WORLD_H, computeView, toWorld } from './canvas/coords.js';
-import { recognize } from './recognition/mock.js';
+import { recognize } from './recognition/onnx.js';
 import { snapshotLine } from './canvas/snapshot.js';
 import { groupLines } from './canvas/lines.js';
 
@@ -215,13 +215,66 @@ widthSlider.addEventListener('change', () => widthSlider.blur());
 // ---------- answers ----------
 let fadeFrame = null;
 
+var typesetOn = true;            // false while the user draws or erases, so the handwriting is visible
+var typesetShown = new Set();    // rows whose typed line has already faded in (no replay)
 function renderAnswers(results, alpha, rise) {
   answerCtx.clearRect(0, 0, WORLD_W, WORLD_H);
-  answerCtx.font = '48px "Caveat", "Segoe Print", cursive';
   answerCtx.textBaseline = 'alphabetic';
 
   const MARGIN = 16;
+  const typeset = typesetOn !== false;
+
+  // Rows shown as typed text: the handwritten-style answer next to them is skipped.
+  const covered = new Set();
+  if (typeset) for (const r of results) if (r.typeset && r.box) covered.add(r.box);
+
+  // 1) Typed rows: the handwriting fades out first, then the typed line fades in.
+  if (typeset) {
+    const SIZE_MIN = 44, SIZE_MAX = 72;      // font size range of the typed line
+    const FAMILY = '"Segoe UI", system-ui, sans-serif';
+    for (const r of results) {
+      if (!r.typeset || !r.box) continue;
+      const b = r.box;
+      const settled = typesetShown.has(r.sig);
+      const a = settled ? 1 : alpha;
+      const rs = settled ? 0 : rise;
+
+      answerCtx.globalAlpha = Math.min(1, a * 2);
+      answerCtx.fillStyle = '#fbf8f1';       // same colour as the paper
+      answerCtx.fillRect(b.x - 1, b.y - 1, b.w + 2, b.h + 2);
+
+      const eq = r.expr + ' = ';
+      const x0 = Math.max(MARGIN, b.x + 16);
+      let size = Math.round(Math.min(SIZE_MAX, Math.max(SIZE_MIN, b.h * 0.5)));
+      const widthAt = (s) => {
+        answerCtx.font = `${s}px ${FAMILY}`;
+        const w1 = answerCtx.measureText(eq).width;
+        answerCtx.font = `600 ${s}px ${FAMILY}`;
+        return w1 + answerCtx.measureText(r.answer).width;
+      };
+      while (size > 24 && x0 + widthAt(size) > WORLD_W - MARGIN) size -= 2;
+
+      const y = Math.min(b.y + b.h / 2 + size * 0.35, WORLD_H - MARGIN) + rs;
+      answerCtx.globalAlpha = Math.max(0, a * 2 - 1);
+      answerCtx.font = `${size}px ${FAMILY}`;
+      answerCtx.fillStyle = '#1f2937';
+      answerCtx.fillText(eq, x0, y);
+      const eqW = answerCtx.measureText(eq).width;
+      answerCtx.font = `600 ${size}px ${FAMILY}`;
+      answerCtx.fillStyle = /^undefined$/i.test(r.answer) ? '#b5655f' : '#2563a8';
+      answerCtx.fillText(r.answer, x0 + eqW, y);
+    }
+    if (alpha >= 1) { // animation finished: remember these rows, forget removed ones
+      const live = new Set();
+      for (const r of results) if (r.typeset && r.sig !== undefined) { typesetShown.add(r.sig); live.add(r.sig); }
+      for (const s of typesetShown) if (!live.has(s)) typesetShown.delete(s);
+    }
+  }
+
+  // 2) Answers next to rows that are not (yet) typed.
+  answerCtx.font = '48px "Caveat", "Segoe Print", cursive';
   for (const r of results) {
+    if (r.typeset || (r.box && covered.has(r.box))) continue;
     const undef = /^undefined$/i.test(r.text);
     const w = answerCtx.measureText(r.text).width;
 
@@ -252,7 +305,7 @@ function setResults(results) {
     return;
   }
   const start = performance.now();
-  const DURATION = 300;
+  const DURATION = 700;
   function step(now) {
     const p = Math.min(1, (now - start) / DURATION);
     const eased = 1 - Math.pow(1 - p, 3);
@@ -298,6 +351,11 @@ function scheduleRecognition() {
           x: box.x + r.x * scale,
           y: box.y + r.y * scale,
           bottom: box.y + box.h,
+        box,
+        sig: line.sig,
+        typeset: r.typeset,
+        expr: r.expr,
+        answer: r.answer,
         })));
         showCached(lines);
       } catch (err) {
@@ -338,3 +396,24 @@ window.addEventListener('keydown', (e) => {
 resize();
 window.addEventListener('resize', resize);
 window.strokes = strokes; // debug: type `strokes` in the console
+
+// ---------- typed-line mode ----------
+// While the user draws or erases, show the handwriting again; the typed line returns after they stop.
+let typesetTimer = null;
+document.getElementById('live').addEventListener('pointerdown', () => {
+  clearTimeout(typesetTimer);
+  if (typesetOn === false) return;
+  typesetOn = false;
+  cancelAnimationFrame(fadeFrame);
+  renderAnswers(lastResults, 1, 0);
+});
+const resumeTypeset = () => {
+  if (typesetOn !== false) return;
+  clearTimeout(typesetTimer);
+  typesetTimer = setTimeout(() => {
+    typesetOn = true;
+    setResults(lastResults);
+  }, 1200);
+};
+window.addEventListener('pointerup', resumeTypeset);
+window.addEventListener('pointercancel', resumeTypeset);
