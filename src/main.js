@@ -12,7 +12,7 @@ import { groupLines } from './canvas/lines.js';
 import { splitLine } from './canvas/segments.js';
 
 // A row wider than this (width / height) is read in slices instead of as one squeezed image.
-const MAX_CHUNK_ASPECT = 6;
+const MAX_CHUNK_ASPECT = 10;
 const SNAP_PAD = 16; // same padding snapshotLine uses around the ink
 
 const boardEl = document.getElementById('board');
