@@ -1,0 +1,174 @@
+diff --git a/src/ml/ml.test.ts b/src/ml/ml.test.ts
+index adfdd3c..314340c 100644
+--- a/src/ml/ml.test.ts
++++ b/src/ml/ml.test.ts
+@@ -7,6 +7,7 @@ import {
+ } from "./preprocess";
+ import { argmaxLastRow, hasRunawayRepeat } from "./decode";
+ import { latexToExpression } from "./postprocess";
++import { evaluate } from "../math/execute.js";
+ 
+ describe("computeFit", () => {
+   const bb = { minX: 0, minY: 0, maxX: 200, maxY: 50 };
+@@ -102,4 +103,57 @@ describe("latexToExpression", () => {
+     expect(latexToExpression("\\sqrt{4}").clean).toBe(false);
+     expect(latexToExpression("1+2=").clean).toBe(true);
+   });
++
++  it("keeps brackets, including \\left( \\right) and square or curly look-alikes", () => {
++    const a = latexToExpression("(3+4)\\times 2 =");
++    expect(a).toEqual({ text: "(3+4)×2=", clean: true });
++    expect(latexToExpression("\\left( 3+4 \\right) \\times 2=").text).toBe("(3+4)×2=");
++    expect(latexToExpression("\\bigl(1+2\\bigr)=").text).toBe("(1+2)=");
++    expect(latexToExpression("[1+2]\\times 3=").text).toBe("(1+2)×3=");
++    expect(latexToExpression("\\{1+2\\}=").text).toBe("(1+2)=");
++  });
++
++  it("inserts implicit multiplication next to brackets", () => {
++    expect(latexToExpression("2(3+4)=").text).toBe("2×(3+4)=");
++    expect(latexToExpression("(1+2)(3+4)=").text).toBe("(1+2)×(3+4)=");
++    expect(latexToExpression("(1+2)3=").text).toBe("(1+2)×3=");
++  });
++
++  it("keeps exponents", () => {
++    expect(latexToExpression("2^{3}=").text).toBe("2^3=");
++    expect(latexToExpression("2^{-1}=").text).toBe("2^(-1)=");
++    expect(latexToExpression("2^3=").text).toBe("2^3=");
++  });
++
++  it("converts general fractions and \\over", () => {
++    expect(latexToExpression("\\frac{12}{4}=").text).toBe("12÷4=");
++    expect(latexToExpression("\\frac{3+1}{2}=").text).toBe("(3+1)÷2=");
++    expect(latexToExpression("2\\div\\frac{3}{4}=").text).toBe("2÷(3÷4)=");
++    expect(latexToExpression("{12 \\over 4}=").text).toBe("12÷4=");
++    expect(latexToExpression("\\frac{\\frac{8}{2}}{2}=").text).toBe("(8÷2)÷2=");
++  });
++
++  it("accepts the slash-like and equals-like tokens a formula model produces", () => {
++    expect(latexToExpression("6/3=").text).toBe("6÷3=");
++    expect(latexToExpression("6 \\slash 3 =").text).toBe("6÷3=");
++    expect(latexToExpression("6 \\backslash 3 =").text).toBe("6÷3=");
++    expect(latexToExpression("1+1\\equiv").text).toBe("1+1=");
++    expect(latexToExpression("1+1\\approx").text).toBe("1+1=");
++    expect(latexToExpression("1+1:=").text).toBe("1+1=");
++    expect(latexToExpression("1+1==").text).toBe("1+1=");
++  });
++
++  it("produces text the evaluator can answer", () => {
++    const answer = (raw: string) => {
++      const { text } = latexToExpression(raw);
++      const body = text.replace(/=$/, "").replace(/×/g, "*").replace(/÷/g, "/");
++      return evaluate(body);
++    };
++    expect(answer("(3+4)\\times 2=")).toEqual({ ok: true, value: 14 });
++    expect(answer("2(3+4)=")).toEqual({ ok: true, value: 14 });
++    expect(answer("\\frac{3+1}{2}=")).toEqual({ ok: true, value: 2 });
++    expect(answer("2\\div\\frac{3}{4}=")).toEqual({ ok: true, value: 2 / (3 / 4) });
++    expect(answer("2^{3}=")).toEqual({ ok: true, value: 8 });
++    expect(answer("(1+2=")).toMatchObject({ ok: false, error: "parens" });
++  });
+ });
+diff --git a/src/ml/postprocess.ts b/src/ml/postprocess.ts
+index 62bf78a..9eaccdf 100644
+--- a/src/ml/postprocess.ts
++++ b/src/ml/postprocess.ts
+@@ -1,16 +1,62 @@
++const NUMBER = /^[0-9.]+$/;
++const wrap = (x: string) => (NUMBER.test(x) ? x : `(${x})`);
++
++/**
++ * \frac{a}{b} and {a \over b} -> a÷b, innermost first.
++ * The result is parenthesised when the surrounding text would change its meaning
++ * (e.g. 2÷\frac{3}{4} must become 2÷(3÷4), not 2÷3÷4).
++ */
++function convertFractions(input: string): string {
++  const FRAC = /\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/;
++  const OVER = /\{([^{}]*)\\over\s*([^{}]*)\}/;
++
++  const build = (a: string, b: string, offset: number, str: string, len: number) => {
++    const body = `${wrap(a.trim())}÷${wrap(b.trim())}`;
++    const before = str.slice(0, offset).trimEnd().slice(-1);
++    const after = str.slice(offset + len).trimStart().charAt(0);
++    return before === "×" || before === "÷" || after === "^" ? `(${body})` : body;
++  };
++
++  let s = input;
++  for (let i = 0; i < 10; i++) {
++    const next = s
++      .replace(FRAC, (m, a, b, off, str) => build(a, b, off, str, m.length))
++      .replace(OVER, (m, a, b, off, str) => build(a, b, off, str, m.length));
++    if (next === s) break;
++    s = next;
++  }
++  return s;
++}
++
+ /** LaTeX from the model -> the plain expression alphabet for the evaluator. */
+ export function latexToExpression(raw: string): {
+   text: string;
+   clean: boolean;
+ } {
+   let s = raw;
+-  // simple numeric fractions only
+-  s = s.replace(/\\frac\{([0-9.]+)\}\{([0-9.]+)\}/g, "$1÷$2");
++
++  // sizing and spacing commands carry no meaning
++  s = s
++    .replace(/\\(?:left|right|[bB]ig{1,2}[lrm]?|quad|qquad)(?![a-zA-Z])/g, "")
++    .replace(/\\[,;! ]/g, "");
++
++  // every kind of bracket the model might use for a handwritten ( or )
++  s = s
++    .replace(/\\(?:lbrace|lbrack|lparen)(?![a-zA-Z])|\\\{|\[/g, "(")
++    .replace(/\\(?:rbrace|rbrack|rparen)(?![a-zA-Z])|\\\}|\]/g, ")");
++
++  // operators, including the look-alikes a formula model produces for handwriting
+   s = s
+     .replace(/\\(?:times|cdot|ast)(?![a-zA-Z])/g, "×")
+-    .replace(/\\(?:div|colon)(?![a-zA-Z])/g, "÷")
+-    .replace(/\\[,;! ]/g, "")
+-    .replace(/\\(?:left|right|quad|qquad)(?![a-zA-Z])/g, "");
++    .replace(/\\(?:div|colon|slash|backslash|diagup|setminus)(?![a-zA-Z])/g, "÷")
++    .replace(/\\(?:equiv|doteq|approx|simeq|asymp|cong|eqsim)(?![a-zA-Z])|:=/g, "=");
++
++  s = convertFractions(s);
++
++  // exponents: ^{3} -> ^3, ^{-1} -> ^(-1)
++  s = s.replace(/\^\s*\{([^{}]*)\}/g, (_m, e: string) =>
++    NUMBER.test(e.trim()) ? `^${e.trim()}` : `^(${e.trim()})`,
++  );
+ 
+   let clean = !/\\[a-zA-Z]+/.test(s); // any command still left is unsupported
+   s = s.replace(/\\[a-zA-Z]+/g, "");
+@@ -19,9 +65,16 @@ export function latexToExpression(raw: string): {
+     .replace(/[−–—]/g, "-")
+     .replace(/[*xX]/g, "×")
+     .replace(/[:/]/g, "÷")
+-    .replace(/[{}\s]/g, "");
++    .replace(/[{}\s]/g, "")
++    .replace(/={2,}/g, "=");
+ 
+-  const text = s.replace(/[^0-9+\-×÷.=]/g, "");
++  let text = s.replace(/[^0-9+\-×÷.=()^]/g, "");
+   if (text.length !== s.length) clean = false; // characters were dropped
++
++  // implicit multiplication: 2(3+4) and (1+2)(3+4) and (1+2)3
++  text = text
++    .replace(/([0-9.)])\(/g, "$1×(")
++    .replace(/\)([0-9.])/g, ")×$1");
++
+   return { text, clean };
+ }
+diff --git a/src/recognition/onnx.js b/src/recognition/onnx.js
+index 5f94ebd..1ff7907 100644
+--- a/src/recognition/onnx.js
++++ b/src/recognition/onnx.js
+@@ -28,7 +28,7 @@ function formatValue(v) {
+ function prettyExpression(body) {
+   return body
+     .replace(/([+×÷])/g, ' $1 ')
+-    .replace(/([0-9.])-/g, '$1 - ')
++    .replace(/([0-9.)])-/g, '$1 - ')
+     .replace(/\s+/g, ' ')
+     .trim();
+ }

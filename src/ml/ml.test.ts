@@ -7,6 +7,7 @@ import {
 } from "./preprocess";
 import { argmaxLastRow, hasRunawayRepeat } from "./decode";
 import { latexToExpression } from "./postprocess";
+import { evaluate } from "../math/execute.js";
 
 describe("computeFit", () => {
   const bb = { minX: 0, minY: 0, maxX: 200, maxY: 50 };
@@ -101,5 +102,58 @@ describe("latexToExpression", () => {
     expect(latexToExpression("\\text{hi}").clean).toBe(false);
     expect(latexToExpression("\\sqrt{4}").clean).toBe(false);
     expect(latexToExpression("1+2=").clean).toBe(true);
+  });
+
+  it("keeps brackets, including \\left( \\right) and square or curly look-alikes", () => {
+    const a = latexToExpression("(3+4)\\times 2 =");
+    expect(a).toEqual({ text: "(3+4)×2=", clean: true });
+    expect(latexToExpression("\\left( 3+4 \\right) \\times 2=").text).toBe("(3+4)×2=");
+    expect(latexToExpression("\\bigl(1+2\\bigr)=").text).toBe("(1+2)=");
+    expect(latexToExpression("[1+2]\\times 3=").text).toBe("(1+2)×3=");
+    expect(latexToExpression("\\{1+2\\}=").text).toBe("(1+2)=");
+  });
+
+  it("inserts implicit multiplication next to brackets", () => {
+    expect(latexToExpression("2(3+4)=").text).toBe("2×(3+4)=");
+    expect(latexToExpression("(1+2)(3+4)=").text).toBe("(1+2)×(3+4)=");
+    expect(latexToExpression("(1+2)3=").text).toBe("(1+2)×3=");
+  });
+
+  it("keeps exponents", () => {
+    expect(latexToExpression("2^{3}=").text).toBe("2^3=");
+    expect(latexToExpression("2^{-1}=").text).toBe("2^(-1)=");
+    expect(latexToExpression("2^3=").text).toBe("2^3=");
+  });
+
+  it("converts general fractions and \\over", () => {
+    expect(latexToExpression("\\frac{12}{4}=").text).toBe("12÷4=");
+    expect(latexToExpression("\\frac{3+1}{2}=").text).toBe("(3+1)÷2=");
+    expect(latexToExpression("2\\div\\frac{3}{4}=").text).toBe("2÷(3÷4)=");
+    expect(latexToExpression("{12 \\over 4}=").text).toBe("12÷4=");
+    expect(latexToExpression("\\frac{\\frac{8}{2}}{2}=").text).toBe("(8÷2)÷2=");
+  });
+
+  it("accepts the slash-like and equals-like tokens a formula model produces", () => {
+    expect(latexToExpression("6/3=").text).toBe("6÷3=");
+    expect(latexToExpression("6 \\slash 3 =").text).toBe("6÷3=");
+    expect(latexToExpression("6 \\backslash 3 =").text).toBe("6÷3=");
+    expect(latexToExpression("1+1\\equiv").text).toBe("1+1=");
+    expect(latexToExpression("1+1\\approx").text).toBe("1+1=");
+    expect(latexToExpression("1+1:=").text).toBe("1+1=");
+    expect(latexToExpression("1+1==").text).toBe("1+1=");
+  });
+
+  it("produces text the evaluator can answer", () => {
+    const answer = (raw: string) => {
+      const { text } = latexToExpression(raw);
+      const body = text.replace(/=$/, "").replace(/×/g, "*").replace(/÷/g, "/");
+      return evaluate(body);
+    };
+    expect(answer("(3+4)\\times 2=")).toEqual({ ok: true, value: 14 });
+    expect(answer("2(3+4)=")).toEqual({ ok: true, value: 14 });
+    expect(answer("\\frac{3+1}{2}=")).toEqual({ ok: true, value: 2 });
+    expect(answer("2\\div\\frac{3}{4}=")).toEqual({ ok: true, value: 2 / (3 / 4) });
+    expect(answer("2^{3}=")).toEqual({ ok: true, value: 8 });
+    expect(answer("(1+2=")).toMatchObject({ ok: false, error: "parens" });
   });
 });

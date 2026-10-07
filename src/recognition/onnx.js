@@ -28,7 +28,7 @@ function formatValue(v) {
 function prettyExpression(body) {
   return body
     .replace(/([+×÷])/g, ' $1 ')
-    .replace(/([0-9.])-/g, '$1 - ')
+    .replace(/([0-9.)])-/g, '$1 - ')
     .replace(/\s+/g, ' ')
     .trim();
 }
