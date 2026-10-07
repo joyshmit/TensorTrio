@@ -6,7 +6,7 @@ import {
 import { strokeHit } from './canvas/hitTest.js';
 // import { snapshotInk } from './canvas/snapshot.js';
 import { WORLD_W, WORLD_H, computeView, toWorld } from './canvas/coords.js';
-import { recognize } from './recognition/onnx.js';
+import { recognize, isReady } from './recognition/onnx.js';
 import { snapshotLine } from './canvas/snapshot.js';
 import { groupLines } from './canvas/lines.js';
 import { splitLine } from './canvas/segments.js';
@@ -224,6 +224,13 @@ var typesetOn = true;            // false while the user draws or erases, so the
 var typesetShown = new Set();    // rows whose typed line has already faded in (no replay)
 function renderAnswers(results, alpha, rise) {
   answerCtx.clearRect(0, 0, WORLD_W, WORLD_H);
+  
+  if (!isReady() && strokes.length > 0) {
+    answerCtx.font = 'italic 20px "Segoe UI", sans-serif';
+    answerCtx.fillStyle = '#9ca3af';
+    answerCtx.fillText("Downloading AI models (takes 10-20s on first load)...", 30, 40);
+  }
+
   answerCtx.textBaseline = 'alphabetic';
 
   const MARGIN = 16;
@@ -307,6 +314,11 @@ function setResults(results) {
   lastResults = results;
   if (results.length === 0) {
     answerCtx.clearRect(0, 0, WORLD_W, WORLD_H);
+    if (!isReady() && strokes.length > 0) {
+      answerCtx.font = 'italic 20px "Segoe UI", sans-serif';
+      answerCtx.fillStyle = '#9ca3af';
+      answerCtx.fillText("Downloading AI models (takes 10-20s on first load)...", 30, 40);
+    }
     return;
   }
   const start = performance.now();

@@ -12,6 +12,10 @@ const recognizer = new MathRecognizer(
   (s) => { if (s.error) console.error('[ML]', s.error); },
 );
 
+export function isReady() {
+  return recognizer.ready;
+}
+
 // Short wording shown on the canvas for each error type from evaluate().
 const SHORT = {
   syntax: 'Missing operand',

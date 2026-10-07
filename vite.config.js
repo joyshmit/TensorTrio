@@ -12,8 +12,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       manifest: false,
       workbox: {
-        maximumFileSizeToCacheInBytes: 200 * 1024 * 1024, // the default ~2 MB would skip the model
-        globPatterns: ['**/*.{js,css,html,wasm,onnx,json,svg,png,ico,woff,woff2}'],
+        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+        globPatterns: ['**/*.{js,css,html,json,svg,png,ico,woff,woff2}'],
         navigateFallback: 'index.html',
       },
     }),
