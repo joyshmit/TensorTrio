@@ -9,6 +9,11 @@ import { WORLD_W, WORLD_H, computeView, toWorld } from './canvas/coords.js';
 import { recognize } from './recognition/onnx.js';
 import { snapshotLine } from './canvas/snapshot.js';
 import { groupLines } from './canvas/lines.js';
+import { splitLine } from './canvas/segments.js';
+
+// A row wider than this (width / height) is read in slices instead of as one squeezed image.
+const MAX_CHUNK_ASPECT = 6;
+const SNAP_PAD = 16; // same padding snapshotLine uses around the ink
 
 const boardEl = document.getElementById('board');
 const baseCanvas = document.getElementById('base');
@@ -341,8 +346,17 @@ function scheduleRecognition() {
       if (cache.has(line.sig)) continue;
       const snap = await snapshotLine(baseCanvas, line, WORLD_W);
       if (!snap) continue;
+      const pieces = [];
       try {
-        const results = await recognize(snap.bitmap);
+        // A long row is read in slices cut at the gaps between strokes (see segments.js).
+        const ranges = splitLine(line, { maxAspect: MAX_CHUNK_ASPECT, pad: SNAP_PAD });
+        if (ranges.length > 1) {
+          for (const range of ranges) {
+            const part = await snapshotLine(baseCanvas, line, WORLD_W, SNAP_PAD, range);
+            if (part) pieces.push(part.bitmap);
+          }
+        }
+        const results = await recognize(snap.bitmap, pieces);
         if (myVersion !== version) return; // drawing changed, a newer run takes over
         const { box } = snap;
         const scale = box.w / snap.bitmap.width;
@@ -363,6 +377,7 @@ function scheduleRecognition() {
         console.error('Recognition failed:', err);
       } finally {
         snap.bitmap.close();
+        for (const b of pieces) b.close();
       }
     }
   }, 400);

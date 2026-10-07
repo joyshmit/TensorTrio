@@ -29,10 +29,16 @@ export async function snapshotInk(baseCanvas, strokes, worldWidth, pad = 16) {
   };
 }
 
-export async function snapshotLine(baseCanvas, line, worldWidth, pad = 16) {
+// `range` ({ x0, x1 } in board units) crops just part of the row; used to feed a very long row
+// to the model in several pieces. Without it the whole row is cropped.
+export async function snapshotLine(baseCanvas, line, worldWidth, pad = 16, range = null) {
   const dpr = baseCanvas.width / worldWidth;
-  const x0 = Math.max(0, line.minX - pad);
-  const x1 = line.maxX + pad;
+  // Padding only goes on the outer ends of the row. A cut edge sits in the gap between strokes,
+  // and padding there would pull the neighbouring slice's ink into this one.
+  const left = range && range.x0 > line.minX ? range.x0 : line.minX - pad;
+  const right = range && range.x1 < line.maxX ? range.x1 : line.maxX + pad;
+  const x0 = Math.max(0, left);
+  const x1 = right;
   const y0 = Math.max(line.minY - pad, line.topLimit);
   const y1 = Math.min(line.maxY + pad, line.bottomLimit);
 

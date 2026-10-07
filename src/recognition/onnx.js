@@ -1,4 +1,5 @@
 import { MathRecognizer } from '../ml/recognizer.ts';
+import { latexToExpression } from '../ml/postprocess.ts';
 import { evaluate } from '../math/execute.js';
 
 // How much to thicken the ink before the model sees it (1 to 4). A row image is shrunk
@@ -33,12 +34,27 @@ function prettyExpression(body) {
     .trim();
 }
 
+// Reads one row. A short row is a single bitmap. A long row also comes with `pieces`: bitmaps of
+// consecutive slices of that row, which are read one by one so the model sees large glyphs, and
+// their LaTeX is joined and converted as one expression (brackets can span pieces).
 // Same contract as mock.js: bitmap in, [{ text, x, y }] out (coordinates inside the bitmap).
-export async function recognize(bitmap) {
-  const r = await recognizer.recognizeBitmap(bitmap, THICKEN);
-  if (r.superseded || !r.clean) return [];
+export async function recognize(bitmap, pieces = []) {
+  let text, clean;
+  if (pieces.length > 1) {
+    const raws = [];
+    for (const piece of pieces) {
+      const r = await recognizer.recognizeBitmap(piece, THICKEN);
+      if (r.superseded) return [];
+      raws.push(r.raw);
+    }
+    ({ text, clean } = latexToExpression(raws.join(' ')));
+  } else {
+    const r = await recognizer.recognizeBitmap(bitmap, THICKEN);
+    if (r.superseded) return [];
+    ({ text, clean } = r);
+  }
+  if (!clean) return [];
 
-  const text = r.text;
   if (!text.endsWith('=')) return [];          // only answer finished equations
   const body = text.slice(0, -1);
   if (!body || body.includes('=')) return [];

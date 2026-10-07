@@ -14,8 +14,8 @@ export const CONFIG = {
   STROKE_FRACTION: 0.014, // line width as a fraction of the model image size
   INVERT: false, // false = black ink on white
 
-  MAX_NEW_TOKENS: 48, // an arithmetic expression is short
-  MAX_REPEAT: 8, // stop if one token repeats this many times in a row
+  MAX_NEW_TOKENS: 128, // long expressions need more than the old 48; runaway output is still cut by MAX_REPEAT
+  MAX_REPEAT: 12, // stop if one token repeats this many times in a row (long numbers like 1000000000 are legit)
   DEBOUNCE_MS: 250,
   DEBUG_PREVIEW: false, // worker sends back the image the model sees
 };
