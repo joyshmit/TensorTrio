@@ -50,28 +50,4 @@ To comply with strict security constraints, the direct use of un-sanitized JavaS
 * **Machine Learning Runtime:** ONNX Runtime Web (`onnxruntime-web`), Transformers.js (`@xenova/transformers`)
 * **Pre-Trained Model:** `breezedeus/pix2text-mfr` (Math Formula Recognition)
 * **Testing:** Vitest
-
-## Local Setup & Development
-
-To deploy and execute the project locally:
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/joyshmit/TensorTrio.git
-   cd TensorTrio
-   ```
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-3. **Run the local development server:**
-   ```bash
-   npm run dev
-   ```
-4. **Run the automated test suite:**
-   ```bash
-   npm test
-   ```
-   *(The repository includes a comprehensive suite of 40+ unit tests covering the arithmetic parser, coordinate transformations, and segmentation logic to ensure high structural integrity.)*
-
 ---
