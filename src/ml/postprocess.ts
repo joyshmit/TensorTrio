@@ -47,7 +47,7 @@ export function latexToExpression(raw: string): {
 
   // operators, including the look-alikes a formula model produces for handwriting
   s = s
-    .replace(/\\(?:times|cdot|ast)(?![a-zA-Z])/g, "×")
+    .replace(/\\(?:times|cdot|ast|star)(?![a-zA-Z])/g, "×")
     .replace(/\\(?:div|colon|slash|backslash|diagup|setminus)(?![a-zA-Z])/g, "÷")
     .replace(/\\(?:equiv|doteq|approx|simeq|asymp|cong|eqsim)(?![a-zA-Z])|:=/g, "=");
 
