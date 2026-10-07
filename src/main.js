@@ -228,7 +228,7 @@ function renderAnswers(results, alpha, rise) {
   if (!isReady() && strokes.length > 0) {
     answerCtx.font = 'italic 20px "Segoe UI", sans-serif';
     answerCtx.fillStyle = '#9ca3af';
-    answerCtx.fillText("Downloading AI models (takes 10-20s on first load)...", 30, 40);
+    answerCtx.fillText("Downloading AI models (takes 10-20s on first load)...", 30, 90);
   }
 
   answerCtx.textBaseline = 'alphabetic';
@@ -317,7 +317,7 @@ function setResults(results) {
     if (!isReady() && strokes.length > 0) {
       answerCtx.font = 'italic 20px "Segoe UI", sans-serif';
       answerCtx.fillStyle = '#9ca3af';
-      answerCtx.fillText("Downloading AI models (takes 10-20s on first load)...", 30, 40);
+      answerCtx.fillText("Downloading AI models (takes 10-20s on first load)...", 30, 90);
     }
     return;
   }
