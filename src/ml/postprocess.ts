@@ -35,10 +35,11 @@ export function latexToExpression(raw: string): {
 } {
   let s = raw;
 
-  // sizing and spacing commands carry no meaning
+  // sizing, spacing and layout commands carry no meaning
   s = s
+    .replace(/\\(?:begin|end)\s*\{[a-zA-Z*]+\}/g, "")
     .replace(/\\(?:left|right|[bB]ig{1,2}[lrm]?|quad|qquad)(?![a-zA-Z])/g, "")
-    .replace(/\\[,;! ]/g, "");
+    .replace(/\\[,;! ]|\\\\/g, "");
 
   // every kind of bracket the model might use for a handwritten ( or )
   s = s
