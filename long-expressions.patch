@@ -1,0 +1,279 @@
+diff --git a/src/canvas/segments.js b/src/canvas/segments.js
+new file mode 100644
+index 0000000..5a6d446
+--- /dev/null
++++ b/src/canvas/segments.js
+@@ -0,0 +1,77 @@
++// Splits one handwritten row into horizontal chunks so the model never sees a row that is
++// far wider than it is tall. The model works on a square image: a long row squeezed into it
++// ends up with glyphs only a few pixels high, which is why long expressions were misread.
++//
++// Cuts are only made in the empty vertical gaps between strokes, so a digit, a bracket or a
++// fraction (bar + numerator + denominator) is never cut in half.
++
++function strokeSpan(s) {
++  let minX = Infinity, maxX = -Infinity;
++  for (const p of s.points) {
++    if (p.x < minX) minX = p.x;
++    if (p.x > maxX) maxX = p.x;
++  }
++  const half = (s.width ?? 0) / 2;
++  return [minX - half, maxX + half];
++}
++
++// Merge overlapping x-ranges into clusters, left to right.
++function clusters(strokes) {
++  const spans = strokes.map(strokeSpan).sort((a, b) => a[0] - b[0]);
++  const out = [];
++  for (const [a, b] of spans) {
++    const last = out[out.length - 1];
++    if (last && a <= last[1]) last[1] = Math.max(last[1], b);
++    else out.push([a, b]);
++  }
++  return out;
++}
++
++/**
++ * @param line  a row from groupLines(): { strokes, minX, maxX, minY, maxY }
++ * @param opts  maxAspect: widest allowed chunk, as width / height of the cropped image
++ *              pad: the padding snapshotLine adds around the ink (counted in the aspect)
++ * @returns     [{ x0, x1 }] board-unit x ranges, left to right. One range = no split needed.
++ */
++export function splitLine(line, { maxAspect = 6, pad = 16 } = {}) {
++  const whole = [{ x0: line.minX, x1: line.maxX }];
++  const height = line.maxY - line.minY + 2 * pad;
++  const maxWidth = maxAspect * height - 2 * pad; // widest ink span that still fits
++  const total = line.maxX - line.minX;
++  if (!(maxWidth > 0) || total <= maxWidth) return whole;
++
++  const cl = clusters(line.strokes);
++  if (cl.length < 2) return whole;
++
++  // candidate cuts: the middle of each gap between neighbouring clusters
++  const gaps = [];
++  for (let i = 0; i + 1 < cl.length; i++) {
++    gaps.push({ at: (cl[i][1] + cl[i + 1][0]) / 2, size: cl[i + 1][0] - cl[i][1] });
++  }
++
++  // Aim for evenly sized chunks (with some slack) rather than a tiny leftover at the end.
++  const n = Math.ceil(total / (0.8 * maxWidth));
++  const target = total / n;
++  const cuts = [];
++  let from = line.minX;
++  for (let k = 1; k < n; k++) {
++    const want = line.minX + k * target;
++    const ahead = gaps.filter((g) => g.at > from + 1e-6);
++    if (ahead.length === 0) break;
++    // prefer the widest gap near the target position, else the nearest gap
++    const near = ahead.filter((g) => Math.abs(g.at - want) <= 0.25 * target);
++    const pick = near.length
++      ? near.reduce((a, b) => (b.size > a.size ? b : a))
++      : ahead.reduce((a, b) => (Math.abs(b.at - want) < Math.abs(a.at - want) ? b : a));
++    // only cut if there is still ink on both sides of the cut
++    if (pick.at >= line.maxX) break;
++    cuts.push(pick.at);
++    from = pick.at;
++  }
++  if (cuts.length === 0) return whole;
++
++  const edges = [line.minX, ...cuts, line.maxX];
++  const chunks = [];
++  for (let i = 0; i + 1 < edges.length; i++) chunks.push({ x0: edges[i], x1: edges[i + 1] });
++  return chunks;
++}
+diff --git a/src/canvas/segments.test.js b/src/canvas/segments.test.js
+new file mode 100644
+index 0000000..46cfce0
+--- /dev/null
++++ b/src/canvas/segments.test.js
+@@ -0,0 +1,66 @@
++import { describe, it, expect } from 'vitest';
++import { splitLine } from './segments.js';
++import { latexToExpression } from '../ml/postprocess.ts';
++
++// n glyphs, each one stroke 40 wide and 100 tall, `gap` apart
++function row(n, gap = 12, w = 40, h = 100) {
++  const strokes = [];
++  for (let i = 0; i < n; i++) {
++    const x = 20 + i * (w + gap);
++    strokes.push({ id: i, tool: 'pen', width: 3, points: [{ x, y: 0 }, { x: x + w, y: h }] });
++  }
++  return { strokes, minX: 20, maxX: 20 + (n - 1) * (w + gap) + w, minY: 0, maxY: h };
++}
++
++describe('splitLine', () => {
++  it('leaves a short row in one piece', () => {
++    expect(splitLine(row(5))).toHaveLength(1);
++  });
++
++  it('splits a long row into ordered pieces that cover the whole row', () => {
++    const line = row(25);
++    const parts = splitLine(line);
++    expect(parts.length).toBeGreaterThan(1);
++    expect(parts[0].x0).toBe(line.minX);
++    expect(parts.at(-1).x1).toBe(line.maxX);
++    for (let i = 1; i < parts.length; i++) expect(parts[i].x0).toBe(parts[i - 1].x1);
++  });
++
++  it('never cuts through a stroke and keeps pieces near the aspect limit', () => {
++    const line = row(40);
++    const parts = splitLine(line, { maxAspect: 6, pad: 16 });
++    const h = line.maxY - line.minY + 32;
++    for (const p of parts) expect(p.x1 - p.x0 + 32).toBeLessThanOrEqual(6 * h * 1.3);
++    for (const p of parts.slice(0, -1)) {
++      for (const s of line.strokes) {
++        const a = s.points[0].x - 1.5;
++        const b = s.points[1].x + 1.5;
++        expect(p.x1 <= a || p.x1 >= b).toBe(true);
++      }
++    }
++  });
++
++  it('does not split when there is no gap to cut in', () => {
++    const line = {
++      strokes: [{ id: 1, tool: 'pen', width: 3, points: [{ x: 0, y: 0 }, { x: 2000, y: 50 }] }],
++      minX: 0, maxX: 2000, minY: 0, maxY: 50,
++    };
++    expect(splitLine(line)).toHaveLength(1);
++  });
++
++  it('cuts in the widest gap near the target position', () => {
++    const line = row(20);
++    for (const s of line.strokes.slice(10)) for (const p of s.points) p.x += 60; // one wide gap
++    line.maxX += 60;
++    const wideGapMiddle = line.strokes[9].points[1].x + 1.5 + (12 + 60 - 3) / 2;
++    const parts = splitLine(line);
++    expect(parts.some((p) => Math.abs(p.x1 - wideGapMiddle) < 1)).toBe(true);
++  });
++});
++
++describe('joining pieces', () => {
++  it('converts the joined LaTeX as one expression, so brackets can span pieces', () => {
++    const joined = ['(12+3', '4)\\times 5', '\\div 2='].join(' ');
++    expect(latexToExpression(joined)).toEqual({ text: '(12+34)×5÷2=', clean: true });
++  });
++});
+diff --git a/src/canvas/snapshot.js b/src/canvas/snapshot.js
+index 74a9ef0..b827c7f 100644
+--- a/src/canvas/snapshot.js
++++ b/src/canvas/snapshot.js
+@@ -29,10 +29,16 @@ export async function snapshotInk(baseCanvas, strokes, worldWidth, pad = 16) {
+   };
+ }
+ 
+-export async function snapshotLine(baseCanvas, line, worldWidth, pad = 16) {
++// `range` ({ x0, x1 } in board units) crops just part of the row; used to feed a very long row
++// to the model in several pieces. Without it the whole row is cropped.
++export async function snapshotLine(baseCanvas, line, worldWidth, pad = 16, range = null) {
+   const dpr = baseCanvas.width / worldWidth;
+-  const x0 = Math.max(0, line.minX - pad);
+-  const x1 = line.maxX + pad;
++  // Padding only goes on the outer ends of the row. A cut edge sits in the gap between strokes,
++  // and padding there would pull the neighbouring slice's ink into this one.
++  const left = range && range.x0 > line.minX ? range.x0 : line.minX - pad;
++  const right = range && range.x1 < line.maxX ? range.x1 : line.maxX + pad;
++  const x0 = Math.max(0, left);
++  const x1 = right;
+   const y0 = Math.max(line.minY - pad, line.topLimit);
+   const y1 = Math.min(line.maxY + pad, line.bottomLimit);
+ 
+diff --git a/src/main.js b/src/main.js
+index f808cf3..a277fa1 100644
+--- a/src/main.js
++++ b/src/main.js
+@@ -9,6 +9,11 @@ import { WORLD_W, WORLD_H, computeView, toWorld } from './canvas/coords.js';
+ import { recognize } from './recognition/onnx.js';
+ import { snapshotLine } from './canvas/snapshot.js';
+ import { groupLines } from './canvas/lines.js';
++import { splitLine } from './canvas/segments.js';
++
++// A row wider than this (width / height) is read in slices instead of as one squeezed image.
++const MAX_CHUNK_ASPECT = 6;
++const SNAP_PAD = 16; // same padding snapshotLine uses around the ink
+ 
+ const boardEl = document.getElementById('board');
+ const baseCanvas = document.getElementById('base');
+@@ -341,8 +346,17 @@ function scheduleRecognition() {
+       if (cache.has(line.sig)) continue;
+       const snap = await snapshotLine(baseCanvas, line, WORLD_W);
+       if (!snap) continue;
++      const pieces = [];
+       try {
+-        const results = await recognize(snap.bitmap);
++        // A long row is read in slices cut at the gaps between strokes (see segments.js).
++        const ranges = splitLine(line, { maxAspect: MAX_CHUNK_ASPECT, pad: SNAP_PAD });
++        if (ranges.length > 1) {
++          for (const range of ranges) {
++            const part = await snapshotLine(baseCanvas, line, WORLD_W, SNAP_PAD, range);
++            if (part) pieces.push(part.bitmap);
++          }
++        }
++        const results = await recognize(snap.bitmap, pieces);
+         if (myVersion !== version) return; // drawing changed, a newer run takes over
+         const { box } = snap;
+         const scale = box.w / snap.bitmap.width;
+@@ -363,6 +377,7 @@ function scheduleRecognition() {
+         console.error('Recognition failed:', err);
+       } finally {
+         snap.bitmap.close();
++        for (const b of pieces) b.close();
+       }
+     }
+   }, 400);
+diff --git a/src/ml/config.ts b/src/ml/config.ts
+index a00ae96..7005666 100644
+--- a/src/ml/config.ts
++++ b/src/ml/config.ts
+@@ -14,8 +14,8 @@ export const CONFIG = {
+   STROKE_FRACTION: 0.014, // line width as a fraction of the model image size
+   INVERT: false, // false = black ink on white
+ 
+-  MAX_NEW_TOKENS: 48, // an arithmetic expression is short
+-  MAX_REPEAT: 8, // stop if one token repeats this many times in a row
++  MAX_NEW_TOKENS: 128, // long expressions need more than the old 48; runaway output is still cut by MAX_REPEAT
++  MAX_REPEAT: 12, // stop if one token repeats this many times in a row (long numbers like 1000000000 are legit)
+   DEBOUNCE_MS: 250,
+   DEBUG_PREVIEW: false, // worker sends back the image the model sees
+ };
+diff --git a/src/recognition/onnx.js b/src/recognition/onnx.js
+index 1ff7907..51a7f19 100644
+--- a/src/recognition/onnx.js
++++ b/src/recognition/onnx.js
+@@ -1,4 +1,5 @@
+ import { MathRecognizer } from '../ml/recognizer.ts';
++import { latexToExpression } from '../ml/postprocess.ts';
+ import { evaluate } from '../math/execute.js';
+ 
+ // How much to thicken the ink before the model sees it (1 to 4). A row image is shrunk
+@@ -33,12 +34,27 @@ function prettyExpression(body) {
+     .trim();
+ }
+ 
++// Reads one row. A short row is a single bitmap. A long row also comes with `pieces`: bitmaps of
++// consecutive slices of that row, which are read one by one so the model sees large glyphs, and
++// their LaTeX is joined and converted as one expression (brackets can span pieces).
+ // Same contract as mock.js: bitmap in, [{ text, x, y }] out (coordinates inside the bitmap).
+-export async function recognize(bitmap) {
+-  const r = await recognizer.recognizeBitmap(bitmap, THICKEN);
+-  if (r.superseded || !r.clean) return [];
++export async function recognize(bitmap, pieces = []) {
++  let text, clean;
++  if (pieces.length > 1) {
++    const raws = [];
++    for (const piece of pieces) {
++      const r = await recognizer.recognizeBitmap(piece, THICKEN);
++      if (r.superseded) return [];
++      raws.push(r.raw);
++    }
++    ({ text, clean } = latexToExpression(raws.join(' ')));
++  } else {
++    const r = await recognizer.recognizeBitmap(bitmap, THICKEN);
++    if (r.superseded) return [];
++    ({ text, clean } = r);
++  }
++  if (!clean) return [];
+ 
+-  const text = r.text;
+   if (!text.endsWith('=')) return [];          // only answer finished equations
+   const body = text.slice(0, -1);
+   if (!body || body.includes('=')) return [];
