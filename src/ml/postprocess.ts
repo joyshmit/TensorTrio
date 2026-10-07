@@ -82,5 +82,16 @@ export function latexToExpression(raw: string): {
     .replace(/([0-9.)])\(/g, "$1×(")
     .replace(/\)([0-9.])/g, ")×$1");
 
+  // clean up dangling operators (often hallucinated when chunks are cut at tight gaps)
+  for (let i = 0; i < 5; i++) {
+    const next = text
+      .replace(/\([×÷^]+/g, "(")
+      .replace(/[+\-×÷^]+\)/g, ")")
+      .replace(/^[×÷^]+/, "")
+      .replace(/[+\-×÷^]+=/g, "=");
+    if (next === text) break;
+    text = next;
+  }
+
   return { text, clean };
 }
